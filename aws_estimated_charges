@@ -1,0 +1,88 @@
+#!/bin/sh
+#
+# Plugin to monitor AWS estimated charges.
+#
+# sample conf
+# [aws_*]
+# user root
+# env.PROFILES /etc/profile.d/aws-apitools-common.sh
+# [aws_estimated_charges]
+# env.SERVICES AmazonEC2 AmazonRDS
+#
+# $Log$
+# Revision 1.0  2012/06 ryo kuroda
+#
+#
+#%# family=auto
+#%# capabilities=autoconf
+
+
+LANG=C
+
+for P in $PROFILES
+do
+    source $P
+done
+
+: ${SERVICES:="AmazonEC2 AWSDataTransfer"}
+
+CMD=$( which mon-get-stats )
+if [ "$1" = "autoconf" ]; then
+    if [ -x "$CMD" ]; then
+        echo yes
+        exit 0
+    else
+        echo "no (command 'mon-get-stats' not found)"
+        exit 1
+    fi
+fi
+
+if [ "$1" = "config" ]; then
+    echo 'graph_title AWS Estimated charges'
+    echo 'graph_args -l 0'
+    echo "graph_category aws";
+    echo 'graph_vlabel USD'
+    echo 'graph_info This graph shows AWS estimated charges'
+
+    echo "total.label total"
+    echo "total.type GAUGE"
+
+    DRAW=
+    for S in $SERVICES
+    do
+        echo "${S}.label ${S}"
+        echo "${S}.type GAUGE"
+        echo "${S}.draw ${DRAW:-AREA}"
+        DRAW="STACK"
+    done
+
+    exit 0
+fi
+
+
+for S in "total" $SERVICES
+do
+    DIMS="Currency=USD"
+
+    if [ "$S" != "total" ]; then
+        DIMS="ServiceName=$S,$DIMS"
+    fi
+
+    echo -n "$S.value "
+
+    # * regionは固定。使っているregionは関係ない。
+    # * metricsの更新が4時間毎なので、4時間以上前をstart-time(デフォ1時間)に
+    #   指定しないと全く値を取れないタイミングがある。
+    # * dateの--iso-8601オプションのフォーマットだとjavaのdateimeライブラリ
+    #   に怒られる(バージョン依存かな？)ので、適当にフォーマット指定。
+    $CMD EstimatedCharges \
+        --region     "us-east-1" \
+        --start-time $( date -u --date '-4 hours' '+%FT%TZ' ) \
+        --statistics "Maximum" \
+        --namespace  "AWS/Billing" \
+        --dimensions "$DIMS" \
+            | tail -1 | awk '{print $3}'
+done
+
+exit 0
+
