@@ -1,0 +1,62 @@
+#!/bin/sh
+#
+# Plugin to monitor SSD life.
+#
+# sample conf
+# [ssd_life]
+# user root
+#
+# $Log$
+# Revision 1.0  2010/08/18 ryo kuroda
+#
+#
+#%# family=auto
+#%# capabilities=autoconf
+
+
+LANG=C
+export PATH=$PATH:/sbin:/usr/sbin/:/usr/local/bin:/usr/local/sbin
+
+SMARTCTL=$( which smartctl )
+if [ "$1" = "autoconf" ]; then
+    if [ -x "$SMARTCTL" ]; then
+        echo yes
+        exit 0
+    else
+        echo "no (command 'smartctl' not found)"
+        exit 1
+    fi
+fi
+
+DEVS=$( awk '$4~/^\wd\w$/{print $4}' /proc/partitions )
+SSDS=""
+
+for DEV in $DEVS
+do
+    $SMARTCTL -A /dev/$DEV | grep -q '^233 ' || continue
+    SSDS="$SSDS $DEV"
+done
+
+
+if [ "$1" = "config" ]; then
+    echo 'graph_title SSD Media Wearout Indicator (in %)'
+    echo 'graph_args --upper-limit 100 -l 0'
+    echo 'graph_vlabel %'
+    echo 'graph_category disk'
+    echo 'graph_info This graph shows SSD media wearout indicator(SMART ID:233).'
+
+    for DEV in $SSDS
+    do
+        echo "$DEV.label $DEV"
+        echo "$DEV.type GAUGE"
+    done
+    exit 0
+fi
+
+
+for DEV in $SSDS
+do
+    echo -n "$DEV.value "
+    $SMARTCTL -A /dev/$DEV | awk '$1==233{print int($4); exit;}'
+done
+
